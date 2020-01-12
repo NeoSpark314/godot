@@ -180,7 +180,7 @@ ShaderGLES2::Version *ShaderGLES2::get_current_version() {
 	strings.push_back("#define USE_HIGHP_PRECISION\n");
 #endif
 #ifdef ANDROID_ENABLED
-	strings.push_back("#define USE_HIGHP_PRECISION\n");
+	strings.push_back("#define USE_HIGHP_PRECISION\n"); // enables always HIGHP on android
 #endif
 
 #endif
