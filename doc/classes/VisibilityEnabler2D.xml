@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="VisibilityEnabler2D" inherits="VisibilityNotifier2D" category="Core" version="3.2">
+<class name="VisibilityEnabler2D" inherits="VisibilityNotifier2D" version="3.2">
 	<brief_description>
 		Enables certain nodes only when visible.
 	</brief_description>
@@ -15,7 +15,7 @@
 			<argument index="0" name="enabler" type="int" enum="VisibilityEnabler2D.Enabler">
 			</argument>
 			<description>
-				Returns whether the enabler identified by given [enum Enabler] constant is active. 
+				Returns whether the enabler identified by given [enum Enabler] constant is active.
 			</description>
 		</method>
 		<method name="set_enabler">

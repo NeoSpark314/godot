@@ -277,7 +277,8 @@ void FindReplaceBar::_replace_all() {
 	}
 
 	text_edit->set_v_scroll(vsval);
-	set_error(vformat(TTR("Replaced %d occurrence(s)."), rc));
+	matches_label->add_color_override("font_color", rc > 0 ? get_color("font_color", "Label") : get_color("error_color", "Editor"));
+	matches_label->set_text(vformat(TTR("%d replaced."), rc));
 
 	text_edit->call_deferred("connect", "text_changed", this, "_editor_text_changed");
 	results_count = -1;
@@ -682,6 +683,16 @@ void CodeTextEditor::_input(const Ref<InputEvent> &event) {
 	}
 	if (ED_IS_SHORTCUT("script_text_editor/move_down", key_event)) {
 		move_lines_down();
+		accept_event();
+		return;
+	}
+	if (ED_IS_SHORTCUT("script_text_editor/delete_line", key_event)) {
+		delete_lines();
+		accept_event();
+		return;
+	}
+	if (ED_IS_SHORTCUT("script_text_editor/clone_down", key_event)) {
+		clone_lines_down();
 		accept_event();
 		return;
 	}
@@ -1184,7 +1195,7 @@ void CodeTextEditor::move_lines_down() {
 
 void CodeTextEditor::_delete_line(int p_line) {
 	// this is currently intended to be called within delete_lines()
-	// so `begin_complex_operation` is ommitted here
+	// so `begin_complex_operation` is omitted here
 	text_editor->set_line(p_line, "");
 	if (p_line == 0 && text_editor->get_line_count() > 1) {
 		text_editor->cursor_set_line(1);
@@ -1250,7 +1261,7 @@ void CodeTextEditor::clone_lines_down() {
 	text_editor->cursor_set_line(cursor_new_line);
 	text_editor->cursor_set_column(cursor_new_column);
 	if (selection_active) {
-		text_editor->select(to_line, to_column, 2 * to_line - from_line, 2 * to_column - from_column);
+		text_editor->select(to_line, to_column, 2 * to_line - from_line, to_line == from_line ? 2 * to_column - from_column : to_column);
 	}
 
 	text_editor->end_complex_operation();

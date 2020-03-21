@@ -30,6 +30,7 @@
 
 #include "export.h"
 
+#include "core/io/image_loader.h"
 #include "core/io/marshalls.h"
 #include "core/io/zip_io.h"
 #include "core/os/dir_access.h"
@@ -37,6 +38,7 @@
 #include "core/os/os.h"
 #include "core/project_settings.h"
 #include "core/version.h"
+#include "drivers/png/png_driver_common.h"
 #include "editor/editor_export.h"
 #include "editor/editor_log.h"
 #include "editor/editor_node.h"
@@ -196,16 +198,40 @@ static const char *android_perms[] = {
 };
 
 struct LauncherIcon {
-	const char *option_id;
 	const char *export_path;
+	int dimensions;
 };
 
-static const LauncherIcon launcher_icons[] = {
-	{ "launcher_icons/xxxhdpi_192x192", "res/drawable-xxxhdpi-v4/icon.png" },
-	{ "launcher_icons/xxhdpi_144x144", "res/drawable-xxhdpi-v4/icon.png" },
-	{ "launcher_icons/xhdpi_96x96", "res/drawable-xhdpi-v4/icon.png" },
-	{ "launcher_icons/hdpi_72x72", "res/drawable-hdpi-v4/icon.png" },
-	{ "launcher_icons/mdpi_48x48", "res/drawable-mdpi-v4/icon.png" }
+static const int icon_densities_count = 6;
+static const char *launcher_icon_option = "launcher_icons/main_192x192";
+static const char *launcher_adaptive_icon_foreground_option = "launcher_icons/adaptive_foreground_432x432";
+static const char *launcher_adaptive_icon_background_option = "launcher_icons/adaptive_background_432x432";
+
+static const LauncherIcon launcher_icons[icon_densities_count] = {
+	{ "res/mipmap-xxxhdpi-v4/icon.png", 192 },
+	{ "res/mipmap-xxhdpi-v4/icon.png", 144 },
+	{ "res/mipmap-xhdpi-v4/icon.png", 96 },
+	{ "res/mipmap-hdpi-v4/icon.png", 72 },
+	{ "res/mipmap-mdpi-v4/icon.png", 48 },
+	{ "res/mipmap/icon.png", 192 }
+};
+
+static const LauncherIcon launcher_adaptive_icon_foregrounds[icon_densities_count] = {
+	{ "res/mipmap-xxxhdpi-v4/icon_foreground.png", 432 },
+	{ "res/mipmap-xxhdpi-v4/icon_foreground.png", 324 },
+	{ "res/mipmap-xhdpi-v4/icon_foreground.png", 216 },
+	{ "res/mipmap-hdpi-v4/icon_foreground.png", 162 },
+	{ "res/mipmap-mdpi-v4/icon_foreground.png", 108 },
+	{ "res/mipmap/icon_foreground.png", 432 }
+};
+
+static const LauncherIcon launcher_adaptive_icon_backgrounds[icon_densities_count] = {
+	{ "res/mipmap-xxxhdpi-v4/icon_background.png", 432 },
+	{ "res/mipmap-xxhdpi-v4/icon_background.png", 324 },
+	{ "res/mipmap-xhdpi-v4/icon_background.png", 216 },
+	{ "res/mipmap-hdpi-v4/icon_background.png", 162 },
+	{ "res/mipmap-mdpi-v4/icon_background.png", 108 },
+	{ "res/mipmap/icon_background.png", 432 }
 };
 
 class EditorExportPlatformAndroid : public EditorExportPlatform {
@@ -221,7 +247,6 @@ class EditorExportPlatformAndroid : public EditorExportPlatform {
 		String name;
 		String description;
 		int api_level;
-		bool usb;
 	};
 
 	struct APKExportData {
@@ -248,20 +273,17 @@ class EditorExportPlatformAndroid : public EditorExportPlatform {
 				String devices;
 				List<String> args;
 				args.push_back("devices");
-				args.push_back("-l");
 				int ec;
 				OS::get_singleton()->execute(adb, args, true, NULL, &devices, &ec);
 
 				Vector<String> ds = devices.split("\n");
 				Vector<String> ldevices;
-				Vector<bool> ldevices_usbconnection;
 				for (int i = 1; i < ds.size(); i++) {
 
 					String d = ds[i];
-					int dpos = d.find(" device ");
+					int dpos = d.find("device");
 					if (dpos == -1)
 						continue;
-					ldevices_usbconnection.push_back(d.find(" usb:") != -1);
 					d = d.substr(0, dpos).strip_edges();
 					ldevices.push_back(d);
 				}
@@ -292,7 +314,6 @@ class EditorExportPlatformAndroid : public EditorExportPlatform {
 
 						Device d;
 						d.id = ldevices[i];
-						d.usb = ldevices_usbconnection[i];
 						for (int j = 0; j < ea->devices.size(); j++) {
 							if (ea->devices[j].id == ldevices[i]) {
 								d.description = ea->devices[j].description;
@@ -316,7 +337,7 @@ class EditorExportPlatformAndroid : public EditorExportPlatform {
 							Vector<String> props = dp.split("\n");
 							String vendor;
 							String device;
-							d.description + "Device ID: " + d.id + "\n";
+							d.description = "Device ID: " + d.id + "\n";
 							d.api_level = 0;
 							for (int j = 0; j < props.size(); j++) {
 
@@ -347,15 +368,7 @@ class EditorExportPlatformAndroid : public EditorExportPlatform {
 								} else if (p.begins_with("ro.opengles.version=")) {
 									uint32_t opengl = p.get_slice("=", 1).to_int();
 									d.description += "OpenGL: " + itos(opengl >> 16) + "." + itos((opengl >> 8) & 0xFF) + "." + itos((opengl)&0xFF) + "\n";
-								} else if (p.begins_with("ro.boot.serialno=")) {
-									d.description += "Serial: " + p.get_slice("=", 1).strip_edges() + "\n";
 								}
-							}
-
-							if (d.usb) {
-								d.description += "Connection: USB\n";
-							} else {
-								d.description += "Connection: " + d.id + "\n";
 							}
 
 							d.name = vendor + " " + device;
@@ -629,9 +642,6 @@ class EditorExportPlatformAndroid : public EditorExportPlatform {
 		String dst_path = p_path.replace_first("res://", "assets/");
 
 		store_in_apk(ed, dst_path, p_data, _should_compress_asset(p_path, p_data) ? Z_DEFLATED : 0);
-		if (ed->ep->step("File: " + p_path, 3 + p_file * 100 / p_total)) {
-			return ERR_SKIP;
-		}
 		return OK;
 	}
 
@@ -1298,6 +1308,27 @@ class EditorExportPlatformAndroid : public EditorExportPlatform {
 		//printf("end\n");
 	}
 
+	void _process_launcher_icons(const String &p_processing_file_name, const Ref<Image> &p_source_image, const LauncherIcon p_icon, Vector<uint8_t> &p_data) {
+		if (p_processing_file_name == p_icon.export_path) {
+			Ref<Image> working_image = p_source_image;
+
+			if (p_source_image->get_width() != p_icon.dimensions || p_source_image->get_height() != p_icon.dimensions) {
+				working_image = p_source_image->duplicate();
+				working_image->resize(p_icon.dimensions, p_icon.dimensions, Image::Interpolation::INTERPOLATE_LANCZOS);
+			}
+
+			PoolVector<uint8_t> png_buffer;
+			Error err = PNGDriverCommon::image_to_png(working_image, png_buffer);
+			if (err == OK) {
+				p_data.resize(png_buffer.size());
+				memcpy(p_data.ptrw(), png_buffer.read().ptr(), p_data.size());
+			} else {
+				String err_str = String("Failed to convert resized icon (") + p_processing_file_name + ") to png.";
+				WARN_PRINT(err_str.utf8().get_data());
+			}
+		}
+	}
+
 	static Vector<String> get_enabled_abis(const Ref<EditorExportPreset> &p_preset) {
 		Vector<String> abis = get_abis();
 		Vector<String> enabled_abis;
@@ -1355,11 +1386,9 @@ public:
 		r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/support_large"), true));
 		r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/support_xlarge"), true));
 		r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/opengl_debug"), false));
-
-		for (uint64_t i = 0; i < sizeof(launcher_icons) / sizeof(launcher_icons[0]); ++i) {
-			r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, launcher_icons[i].option_id, PROPERTY_HINT_FILE, "*.png"), ""));
-		}
-
+		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, launcher_icon_option, PROPERTY_HINT_FILE, "*.png"), ""));
+		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, launcher_adaptive_icon_foreground_option, PROPERTY_HINT_FILE, "*.png"), ""));
+		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, launcher_adaptive_icon_background_option, PROPERTY_HINT_FILE, "*.png"), ""));
 		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "keystore/debug", PROPERTY_HINT_GLOBAL_FILE, "*.keystore"), ""));
 		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "keystore/debug_user"), ""));
 		r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "keystore/debug_password"), ""));
@@ -1450,28 +1479,28 @@ public:
 	virtual Error run(const Ref<EditorExportPreset> &p_preset, int p_device, int p_debug_flags) {
 
 		ERR_FAIL_INDEX_V(p_device, devices.size(), ERR_INVALID_PARAMETER);
+
+		String can_export_error;
+		bool can_export_missing_templates;
+		if (!can_export(p_preset, can_export_error, can_export_missing_templates)) {
+			EditorNode::add_io_error(can_export_error);
+			return ERR_UNCONFIGURED;
+		}
+
 		device_lock->lock();
 
 		EditorProgress ep("run", "Running on " + devices[p_device].name, 3);
 
 		String adb = EditorSettings::get_singleton()->get("export/android/adb");
-		if (adb == "") {
-
-			EditorNode::add_io_error("ADB executable not configured in settings, can't run.");
-			device_lock->unlock();
-			return ERR_UNCONFIGURED;
-		}
 
 		// Export_temp APK.
-		if (ep.step("Exporting APK", 0)) {
+		if (ep.step("Exporting APK...", 0)) {
 			device_lock->unlock();
 			return ERR_SKIP;
 		}
 
 		const bool use_remote = (p_debug_flags & DEBUG_FLAG_REMOTE_DEBUG) || (p_debug_flags & DEBUG_FLAG_DUMB_CLIENT);
-		const bool use_reverse = devices[p_device].api_level >= 21 && devices[p_device].usb;
-		// Note: Reverse can still fail if device is connected by both usb and network
-		// Ideally we'd know for sure whether adb reverse would work before we build the APK
+		const bool use_reverse = devices[p_device].api_level >= 21;
 
 		if (use_reverse)
 			p_debug_flags |= DEBUG_FLAG_REMOTE_DEBUG_LOCALHOST;
@@ -1515,7 +1544,7 @@ public:
 		}
 
 		print_line("Installing to device (please wait...): " + devices[p_device].name);
-		if (ep.step("Installing to device (please wait...)", 2)) {
+		if (ep.step("Installing to device, please wait...", 2)) {
 			CLEANUP_AND_RETURN(ERR_SKIP);
 		}
 
@@ -1576,13 +1605,13 @@ public:
 				}
 			} else {
 
-				static const char *const msg = "--- Device API < 21 or no USB connection; debugging over Wi-Fi ---";
+				static const char *const msg = "--- Device API < 21; debugging over Wi-Fi ---";
 				EditorNode::get_singleton()->get_log()->add_message(msg, EditorLog::MSG_TYPE_EDITOR);
 				print_line(String(msg).to_upper());
 			}
 		}
 
-		if (ep.step("Running on Device...", 3)) {
+		if (ep.step("Running on device...", 3)) {
 			CLEANUP_AND_RETURN(ERR_SKIP);
 		}
 		args.clear();
@@ -1825,6 +1854,7 @@ public:
 					while (!f->eof_reached()) {
 						String l = f->get_line();
 
+						bool append_line = false;
 						if (l.begins_with("//CHUNK_")) {
 							String text = l.replace_first("//CHUNK_", "");
 							int begin_pos = text.find("_BEGIN");
@@ -1856,10 +1886,14 @@ public:
 											new_file += E->get() + "\n";
 										}
 									}
-									new_file += end_marker + "\n";
+									if (f->eof_reached()) {
+										new_file += end_marker;
+									} else {
+										new_file += end_marker + "\n";
+									}
 								}
 							} else {
-								new_file += l + "\n"; //pass line by
+								append_line = true;
 							}
 						} else if (l.begins_with("//DIR_")) {
 							String text = l.replace_first("//DIR_", "");
@@ -1892,14 +1926,25 @@ public:
 											new_file += "\n";
 										}
 									}
-									new_file += end_marker + "\n";
+									if (f->eof_reached()) {
+										new_file += end_marker;
+									} else {
+										new_file += end_marker + "\n";
+									}
 								}
 							} else {
-								new_file += l + "\n"; //pass line by
+								append_line = true;
 							}
-
 						} else {
-							new_file += l + "\n";
+							append_line = true;
+						}
+
+						if (append_line) {
+							if (f->eof_reached()) {
+								new_file += l;
+							} else {
+								new_file += l + "\n";
+							}
 						}
 					}
 				}
@@ -1920,6 +1965,7 @@ public:
 					while (!f->eof_reached()) {
 						String l = f->get_line();
 
+						bool append_line = false;
 						if (l.begins_with("<!--CHUNK_")) {
 							String text = l.replace_first("<!--CHUNK_", "");
 							int begin_pos = text.find("_BEGIN-->");
@@ -1950,18 +1996,22 @@ public:
 											new_file += E->get() + "\n";
 										}
 									}
-									new_file += end_marker + "\n";
+									if (f->eof_reached()) {
+										new_file += end_marker;
+									} else {
+										new_file += end_marker + "\n";
+									}
 								}
 							} else {
-								new_file += l + "\n"; //pass line by
+								append_line = true;
 							}
 
 						} else if (l.strip_edges().begins_with("<application")) {
-							String last_tag = "android:icon=\"@drawable/icon\"";
+							String last_tag = "android:icon=\"@mipmap/icon\"";
 							int last_tag_pos = l.find(last_tag);
 							if (last_tag_pos == -1) {
 								ERR_PRINTS("Not adding application attributes as the expected tag was not found in '<application': " + last_tag);
-								new_file += l + "\n";
+								append_line = true;
 							} else {
 								String base = l.substr(0, last_tag_pos + last_tag.length());
 								if (manifest_sections.has("application_attribs")) {
@@ -1974,7 +2024,14 @@ public:
 								new_file += base;
 							}
 						} else {
-							new_file += l + "\n";
+							append_line = true;
+						}
+
+						if (append_line) {
+							new_file += l;
+							if (!f->eof_reached()) {
+								new_file += "\n";
+							}
 						}
 					}
 				}
@@ -2087,7 +2144,7 @@ public:
 		FileAccess *src_f = NULL;
 		zlib_filefunc_def io = zipio_create_io_from_file(&src_f);
 
-		if (ep.step("Creating APK", 0)) {
+		if (ep.step("Creating APK...", 0)) {
 			return ERR_SKIP;
 		}
 
@@ -2136,6 +2193,35 @@ public:
 
 		Vector<String> enabled_abis = get_enabled_abis(p_preset);
 
+		String project_icon_path = ProjectSettings::get_singleton()->get("application/config/icon");
+
+		// Prepare images to be resized for the icons. If some image ends up being uninitialized, the default image from the export template will be used.
+		Ref<Image> launcher_icon_image;
+		Ref<Image> launcher_adaptive_icon_foreground_image;
+		Ref<Image> launcher_adaptive_icon_background_image;
+
+		launcher_icon_image.instance();
+		launcher_adaptive_icon_foreground_image.instance();
+		launcher_adaptive_icon_background_image.instance();
+
+		// Regular icon: user selection -> project icon -> default.
+		String path = static_cast<String>(p_preset->get(launcher_icon_option)).strip_edges();
+		if (path.empty() || ImageLoader::load_image(path, launcher_icon_image) != OK) {
+			ImageLoader::load_image(project_icon_path, launcher_icon_image);
+		}
+
+		// Adaptive foreground: user selection -> regular icon (user selection -> project icon -> default).
+		path = static_cast<String>(p_preset->get(launcher_adaptive_icon_foreground_option)).strip_edges();
+		if (path.empty() || ImageLoader::load_image(path, launcher_adaptive_icon_foreground_image) != OK) {
+			launcher_adaptive_icon_foreground_image = launcher_icon_image;
+		}
+
+		// Adaptive background: user selection -> default.
+		path = static_cast<String>(p_preset->get(launcher_adaptive_icon_background_option)).strip_edges();
+		if (!path.empty()) {
+			ImageLoader::load_image(path, launcher_adaptive_icon_background_image);
+		}
+
 		while (ret == UNZ_OK) {
 
 			//get filename
@@ -2158,41 +2244,22 @@ public:
 			//write
 
 			if (file == "AndroidManifest.xml") {
-
 				_fix_manifest(p_preset, data, p_flags & (DEBUG_FLAG_DUMB_CLIENT | DEBUG_FLAG_REMOTE_DEBUG));
 			}
 
 			if (file == "resources.arsc") {
-
 				_fix_resources(p_preset, data);
 			}
 
-			if (file == "res/drawable-nodpi-v4/icon.png") {
-				bool found = false;
-				for (uint64_t i = 0; i < sizeof(launcher_icons) / sizeof(launcher_icons[0]); ++i) {
-					String icon_path = String(p_preset->get(launcher_icons[i].option_id)).strip_edges();
-					if (icon_path != "" && icon_path.ends_with(".png")) {
-						FileAccess *f = FileAccess::open(icon_path, FileAccess::READ);
-						if (f) {
-							data.resize(f->get_len());
-							f->get_buffer(data.ptrw(), data.size());
-							memdelete(f);
-							found = true;
-							break;
-						}
-					}
+			for (int i = 0; i < icon_densities_count; ++i) {
+				if (launcher_icon_image.is_valid() && !launcher_icon_image->empty()) {
+					_process_launcher_icons(file, launcher_icon_image, launcher_icons[i], data);
 				}
-				if (!found) {
-
-					String appicon = ProjectSettings::get_singleton()->get("application/config/icon");
-					if (appicon != "" && appicon.ends_with(".png")) {
-						FileAccess *f = FileAccess::open(appicon, FileAccess::READ);
-						if (f) {
-							data.resize(f->get_len());
-							f->get_buffer(data.ptrw(), data.size());
-							memdelete(f);
-						}
-					}
+				if (launcher_adaptive_icon_foreground_image.is_valid() && !launcher_adaptive_icon_foreground_image->empty()) {
+					_process_launcher_icons(file, launcher_adaptive_icon_foreground_image, launcher_adaptive_icon_foregrounds[i], data);
+				}
+				if (launcher_adaptive_icon_background_image.is_valid() && !launcher_adaptive_icon_background_image->empty()) {
+					_process_launcher_icons(file, launcher_adaptive_icon_background_image, launcher_adaptive_icon_backgrounds[i], data);
 				}
 			}
 
@@ -2239,7 +2306,7 @@ public:
 			ret = unzGoToNextFile(pkg);
 		}
 
-		if (ep.step("Adding Files...", 1)) {
+		if (ep.step("Adding files...", 1)) {
 			CLEANUP_AND_RETURN(ERR_SKIP);
 		}
 		Error err = OK;
@@ -2288,19 +2355,6 @@ public:
 				ed.apk = unaligned_apk;
 
 				err = export_project_files(p_preset, save_apk_file, &ed, save_apk_so);
-			}
-		}
-
-		if (!err) {
-			APKExportData ed;
-			ed.ep = &ep;
-			ed.apk = unaligned_apk;
-			for (uint64_t i = 0; i < sizeof(launcher_icons) / sizeof(launcher_icons[0]); ++i) {
-				String icon_path = String(p_preset->get(launcher_icons[i].option_id)).strip_edges();
-				if (icon_path != "" && icon_path.ends_with(".png") && FileAccess::exists(icon_path)) {
-					Vector<uint8_t> data = FileAccess::get_file_as_array(icon_path);
-					store_in_apk(&ed, launcher_icons[i].export_path, data);
-				}
 			}
 		}
 
