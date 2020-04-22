@@ -1246,7 +1246,6 @@ Error EditorSceneImporterGLTF::_parse_meshes(GLTFState &state) {
 }
 
 Error EditorSceneImporterGLTF::_parse_images(GLTFState &state, const String &p_base_path) {
-
 	if (!state.json.has("images"))
 		return OK;
 
@@ -1277,6 +1276,9 @@ Error EditorSceneImporterGLTF::_parse_images(GLTFState &state, const String &p_b
 
 				uri = p_base_path.plus_file(uri).replace("\\", "/"); //fix for windows
 				Ref<Texture> texture = ResourceLoader::load(uri);
+				
+				texture->set_flags(0); // NeoSpark314: disable filtering by default; this information would actually be stored in the sampler in the .gltf
+				
 				state.images.push_back(texture);
 				continue;
 			}
@@ -1310,7 +1312,7 @@ Error EditorSceneImporterGLTF::_parse_images(GLTFState &state, const String &p_b
 
 			Ref<ImageTexture> t;
 			t.instance();
-			t->create_from_image(img);
+			t->create_from_image(img, 0/*flags*/);
 
 			state.images.push_back(t);
 			continue;
