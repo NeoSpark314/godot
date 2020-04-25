@@ -114,7 +114,7 @@ public final class PermissionsUtil {
 				}
 			} catch (PackageManager.NameNotFoundException e) {
 				e.printStackTrace();
-				return false;
+				//return false; // NeoSpark314: continue to check even if a permission is not found (like handtracking for oculus quest)
 			}
 		}
 
