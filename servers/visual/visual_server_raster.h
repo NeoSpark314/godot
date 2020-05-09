@@ -464,6 +464,7 @@ public:
 	BIND2(viewport_set_vflip, RID, bool)
 
 	BIND1RC(RID, viewport_get_texture, RID)
+	BIND1RC(int, viewport_get_color_texture_id, RID)
 
 	BIND2(viewport_set_hide_scenario, RID, bool)
 	BIND2(viewport_set_hide_canvas, RID, bool)

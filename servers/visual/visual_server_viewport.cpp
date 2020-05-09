@@ -510,6 +510,15 @@ RID VisualServerViewport::viewport_get_texture(RID p_viewport) const {
 	return VSG::storage->render_target_get_texture(viewport->render_target);
 }
 
+int VisualServerViewport::viewport_get_color_texture_id(RID p_viewport) const {
+
+	const Viewport *viewport = viewport_owner.getornull(p_viewport);
+	ERR_FAIL_COND_V(!viewport, 0);
+
+	return VSG::storage->render_target_get_color_texture_id(viewport->render_target);
+}
+
+
 void VisualServerViewport::viewport_set_hide_scenario(RID p_viewport, bool p_hide) {
 
 	Viewport *viewport = viewport_owner.getornull(p_viewport);

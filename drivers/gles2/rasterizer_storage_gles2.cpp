@@ -4615,7 +4615,6 @@ void RasterizerStorageGLES2::instance_remove_dependency(RID p_base, RasterizerSc
 }
 
 /* RENDER TARGET */
-
 void RasterizerStorageGLES2::_render_target_allocate(RenderTarget *rt) {
 
 	// do not allocate a render target with no size
@@ -5141,6 +5140,19 @@ RID RasterizerStorageGLES2::render_target_get_texture(RID p_render_target) const
 		return rt->texture;
 	} else {
 		return rt->external.texture;
+	}
+}
+
+int RasterizerStorageGLES2::render_target_get_color_texture_id(RID p_render_target) const {
+
+	RenderTarget *rt = render_target_owner.getornull(p_render_target);
+	ERR_FAIL_COND_V(!rt, 0);
+
+	if (rt->external.fbo == 0) {
+		return (int)rt->color;
+	} else {
+		//return rt->external.color;
+		return 0;
 	}
 }
 

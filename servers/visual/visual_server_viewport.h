@@ -169,6 +169,7 @@ public:
 	void viewport_set_clear_mode(RID p_viewport, VS::ViewportClearMode p_clear_mode);
 
 	RID viewport_get_texture(RID p_viewport) const;
+	int viewport_get_color_texture_id(RID p_viewport) const;
 
 	void viewport_set_hide_scenario(RID p_viewport, bool p_hide);
 	void viewport_set_hide_canvas(RID p_viewport, bool p_hide);

@@ -639,6 +639,7 @@ public:
 	virtual void viewport_set_clear_mode(RID p_viewport, ViewportClearMode p_clear_mode) = 0;
 
 	virtual RID viewport_get_texture(RID p_viewport) const = 0;
+	virtual int viewport_get_color_texture_id(RID p_viewport) const = 0;
 
 	virtual void viewport_set_hide_scenario(RID p_viewport, bool p_hide) = 0;
 	virtual void viewport_set_hide_canvas(RID p_viewport, bool p_hide) = 0;

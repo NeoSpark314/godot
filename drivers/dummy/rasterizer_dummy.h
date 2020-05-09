@@ -701,6 +701,8 @@ public:
 	void render_target_set_position(RID p_render_target, int p_x, int p_y) {}
 	void render_target_set_size(RID p_render_target, int p_width, int p_height) {}
 	RID render_target_get_texture(RID p_render_target) const { return RID(); }
+	virtual int render_target_get_color_texture_id(RID p_render_target) const { return 0; }
+	
 	void render_target_set_external_texture(RID p_render_target, unsigned int p_texture_id) {}
 	void render_target_set_flag(RID p_render_target, RenderTargetFlags p_flag, bool p_value) {}
 	bool render_target_was_used(RID p_render_target) { return false; }
