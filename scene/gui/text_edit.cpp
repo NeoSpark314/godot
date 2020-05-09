@@ -6212,6 +6212,10 @@ void TextEdit::_push_current_op() {
 	current_op.type = TextOperation::TYPE_NONE;
 	current_op.text = "";
 	current_op.chain_forward = false;
+
+	if (undo_stack.size() > undo_stack_max_size) {
+		undo_stack.pop_front();
+	}
 }
 
 void TextEdit::set_indent_using_spaces(const bool p_use_spaces) {
@@ -7030,6 +7034,7 @@ void TextEdit::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_line_count"), &TextEdit::get_line_count);
 	ClassDB::bind_method(D_METHOD("get_text"), &TextEdit::get_text);
 	ClassDB::bind_method(D_METHOD("get_line", "line"), &TextEdit::get_line);
+	ClassDB::bind_method(D_METHOD("set_line", "line", "new_text"), &TextEdit::set_line);
 
 	ClassDB::bind_method(D_METHOD("center_viewport_to_cursor"), &TextEdit::center_viewport_to_cursor);
 	ClassDB::bind_method(D_METHOD("cursor_set_column", "column", "adjust_viewport"), &TextEdit::cursor_set_column, DEFVAL(true));
@@ -7189,6 +7194,8 @@ void TextEdit::_bind_methods() {
 
 	GLOBAL_DEF("gui/timers/text_edit_idle_detect_sec", 3);
 	ProjectSettings::get_singleton()->set_custom_property_info("gui/timers/text_edit_idle_detect_sec", PropertyInfo(Variant::REAL, "gui/timers/text_edit_idle_detect_sec", PROPERTY_HINT_RANGE, "0,10,0.01,or_greater")); // No negative numbers.
+	GLOBAL_DEF("gui/common/text_edit_undo_stack_max_size", 1024);
+	ProjectSettings::get_singleton()->set_custom_property_info("gui/common/text_edit_undo_stack_max_size", PropertyInfo(Variant::INT, "gui/common/text_edit_undo_stack_max_size", PROPERTY_HINT_RANGE, "0,10000,1,or_greater")); // No negative numbers.
 }
 
 TextEdit::TextEdit() {
@@ -7268,6 +7275,7 @@ TextEdit::TextEdit() {
 
 	current_op.type = TextOperation::TYPE_NONE;
 	undo_enabled = true;
+	undo_stack_max_size = GLOBAL_GET("gui/common/text_edit_undo_stack_max_size");
 	undo_stack_pos = NULL;
 	setting_text = false;
 	last_dblclk = 0;
