@@ -72,6 +72,16 @@ bool GDScriptParser::_end_statement() {
 	return false;
 }
 
+void GDScriptParser::_set_end_statement_error(String p_name) {
+	String error_msg;
+	if (tokenizer->get_token() == GDScriptTokenizer::TK_IDENTIFIER) {
+		error_msg = vformat("Expected end of statement (\"%s\"), got %s (\"%s\") instead.", p_name, tokenizer->get_token_name(tokenizer->get_token()), tokenizer->get_token_identifier());
+	} else {
+		error_msg = vformat("Expected end of statement (\"%s\"), got %s instead.", p_name, tokenizer->get_token_name(tokenizer->get_token()));
+	}
+	_set_error(error_msg);
+}
+
 bool GDScriptParser::_enter_indent_block(BlockNode *p_block) {
 
 	if (tokenizer->get_token() != GDScriptTokenizer::TK_COLON) {
@@ -2719,6 +2729,7 @@ void GDScriptParser::_transform_match_statment(MatchNode *p_match_statement) {
 
 			IdentifierNode *id2 = alloc_node<IdentifierNode>();
 			id2->name = local_var->name;
+			id2->datatype = local_var->datatype;
 			id2->declared_block = branch->body;
 			id2->set_datatype(local_var->assign->get_datatype());
 
@@ -2923,7 +2934,7 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 				lv->assign = assigned;
 
 				if (!_end_statement()) {
-					_set_error("Expected end of statement (\"var\").");
+					_set_end_statement_error("var");
 					return;
 				}
 
@@ -3081,6 +3092,8 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 
 				cf_while->body = alloc_node<BlockNode>();
 				cf_while->body->parent_block = p_block;
+				cf_while->body->can_break = true;
+				cf_while->body->can_continue = true;
 				p_block->sub_blocks.push_back(cf_while->body);
 
 				if (!_enter_indent_block(cf_while->body)) {
@@ -3145,6 +3158,8 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 								ConstantNode *c = static_cast<ConstantNode *>(op->arguments[i]);
 								if (c->value.get_type() == Variant::REAL || c->value.get_type() == Variant::INT) {
 									constants.push_back(c->value);
+								} else {
+									constant = false;
 								}
 							} else {
 								constant = false;
@@ -3198,6 +3213,8 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 
 				cf_for->body = alloc_node<BlockNode>();
 				cf_for->body->parent_block = p_block;
+				cf_for->body->can_break = true;
+				cf_for->body->can_continue = true;
 				p_block->sub_blocks.push_back(cf_for->body);
 
 				if (!_enter_indent_block(cf_for->body)) {
@@ -3227,6 +3244,20 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 				p_block->statements.push_back(cf_for);
 			} break;
 			case GDScriptTokenizer::TK_CF_CONTINUE: {
+				BlockNode *upper_block = p_block;
+				bool is_continue_valid = false;
+				while (upper_block) {
+					if (upper_block->can_continue) {
+						is_continue_valid = true;
+						break;
+					}
+					upper_block = upper_block->parent_block;
+				}
+
+				if (!is_continue_valid) {
+					_set_error("Unexpected keyword \"continue\" outside a loop.");
+					return;
+				}
 
 				_mark_line_as_safe(tokenizer->get_token_line());
 				tokenizer->advance();
@@ -3234,11 +3265,25 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 				cf_continue->cf_type = ControlFlowNode::CF_CONTINUE;
 				p_block->statements.push_back(cf_continue);
 				if (!_end_statement()) {
-					_set_error("Expected end of statement (\"continue\").");
+					_set_end_statement_error("continue");
 					return;
 				}
 			} break;
 			case GDScriptTokenizer::TK_CF_BREAK: {
+				BlockNode *upper_block = p_block;
+				bool is_break_valid = false;
+				while (upper_block) {
+					if (upper_block->can_break) {
+						is_break_valid = true;
+						break;
+					}
+					upper_block = upper_block->parent_block;
+				}
+
+				if (!is_break_valid) {
+					_set_error("Unexpected keyword \"break\" outside a loop.");
+					return;
+				}
 
 				_mark_line_as_safe(tokenizer->get_token_line());
 				tokenizer->advance();
@@ -3246,7 +3291,7 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 				cf_break->cf_type = ControlFlowNode::CF_BREAK;
 				p_block->statements.push_back(cf_break);
 				if (!_end_statement()) {
-					_set_error("Expected end of statement (\"break\").");
+					_set_end_statement_error("break");
 					return;
 				}
 			} break;
@@ -3275,7 +3320,7 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 					cf_return->arguments.push_back(retexpr);
 					p_block->statements.push_back(cf_return);
 					if (!_end_statement()) {
-						_set_error("Expected end of statement after return expression.");
+						_set_end_statement_error("return");
 						return;
 					}
 				}
@@ -3307,6 +3352,7 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 				BlockNode *compiled_branches = alloc_node<BlockNode>();
 				compiled_branches->parent_block = p_block;
 				compiled_branches->parent_class = p_block->parent_class;
+				compiled_branches->can_continue = true;
 
 				p_block->sub_blocks.push_back(compiled_branches);
 
@@ -3363,7 +3409,7 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 				p_block->statements.push_back(an);
 
 				if (!_end_statement()) {
-					_set_error("Expected end of statement after \"assert\".", assert_line);
+					_set_end_statement_error("assert");
 					return;
 				}
 			} break;
@@ -3374,7 +3420,7 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 				p_block->statements.push_back(bn);
 
 				if (!_end_statement()) {
-					_set_error("Expected end of statement after \"breakpoint\".");
+					_set_end_statement_error("breakpoint");
 					return;
 				}
 			} break;
@@ -3393,7 +3439,7 @@ void GDScriptParser::_parse_block(BlockNode *p_block, bool p_static) {
 					if (tokenizer->get_token() == GDScriptTokenizer::TK_COLON && tokenizer->get_token(1) == GDScriptTokenizer::TK_OP_ASSIGN) {
 						_set_error("Unexpected ':=', use '=' instead. Expected end of statement after expression.");
 					} else {
-						_set_error(String() + "Expected end of statement after expression, got " + tokenizer->get_token_name(tokenizer->get_token()) + " instead");
+						_set_error(vformat("Expected end of statement after expression, got %s instead.", tokenizer->get_token_name(tokenizer->get_token())));
 					}
 					return;
 				}
@@ -3582,7 +3628,7 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 				if (error_set)
 					return;
 				if (!_end_statement()) {
-					_set_error("Expected end of statement after \"extends\".");
+					_set_end_statement_error("extends");
 					return;
 				}
 
@@ -4087,7 +4133,7 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 				p_class->_signals.push_back(sig);
 
 				if (!_end_statement()) {
-					_set_error("Expected end of statement (\"signal\").");
+					_set_end_statement_error("signal");
 					return;
 				}
 			} break;
@@ -4954,6 +5000,7 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 
 					IdentifierNode *id = alloc_node<IdentifierNode>();
 					id->name = member.identifier;
+					id->datatype = member.data_type;
 
 					OperatorNode *op = alloc_node<OperatorNode>();
 					op->op = OperatorNode::OP_INIT_ASSIGN;
@@ -4996,6 +5043,7 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 
 					IdentifierNode *id = alloc_node<IdentifierNode>();
 					id->name = member.identifier;
+					id->datatype = member.data_type;
 
 					OperatorNode *op = alloc_node<OperatorNode>();
 					op->op = OperatorNode::OP_INIT_ASSIGN;
@@ -5038,7 +5086,7 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 				p_class->variables.push_back(member);
 
 				if (!_end_statement()) {
-					_set_error("Expected end of statement (\"continue\").");
+					_set_end_statement_error("var");
 					return;
 				}
 			} break;
@@ -5118,7 +5166,7 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 				p_class->constant_expressions.insert(const_id, constant);
 
 				if (!_end_statement()) {
-					_set_error("Expected end of statement (constant).", line);
+					_set_end_statement_error("const");
 					return;
 				}
 
@@ -5272,7 +5320,7 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 				}
 
 				if (!_end_statement()) {
-					_set_error("Expected end of statement (\"enum\").");
+					_set_end_statement_error("enum");
 					return;
 				}
 
@@ -5286,6 +5334,10 @@ void GDScriptParser::_parse_class(ClassNode *p_class) {
 					_set_error(String() + "Unexpected constant of type: " + Variant::get_type_name(tokenizer->get_token_constant().get_type()));
 					return;
 				}
+			} break;
+
+			case GDScriptTokenizer::TK_CF_PASS: {
+				tokenizer->advance();
 			} break;
 
 			default: {
@@ -6635,6 +6687,7 @@ GDScriptParser::DataType GDScriptParser::_reduce_node_type(Node *p_node) {
 
 							IdentifierNode *id = alloc_node<IdentifierNode>();
 							id->name = cn->value.operator StringName();
+							id->datatype = cn->datatype;
 
 							op->op = OperatorNode::OP_INDEX_NAMED;
 							op->arguments.write[1] = id;
@@ -7318,7 +7371,7 @@ GDScriptParser::DataType GDScriptParser::_reduce_function_call_type(const Operat
 	return return_type;
 }
 
-bool GDScriptParser::_get_member_type(const DataType &p_base_type, const StringName &p_member, DataType &r_member_type) const {
+bool GDScriptParser::_get_member_type(const DataType &p_base_type, const StringName &p_member, DataType &r_member_type, bool *r_is_const) const {
 	DataType base_type = p_base_type;
 
 	// Check classes in current file
@@ -7329,6 +7382,8 @@ bool GDScriptParser::_get_member_type(const DataType &p_base_type, const StringN
 
 	while (base) {
 		if (base->constant_expressions.has(p_member)) {
+			if (r_is_const)
+				*r_is_const = true;
 			r_member_type = base->constant_expressions[p_member].expression->get_datatype();
 			return true;
 		}
@@ -7552,7 +7607,12 @@ GDScriptParser::DataType GDScriptParser::_reduce_identifier_type(const DataType 
 		base_type = DataType(*p_base_type);
 	}
 
-	if (_get_member_type(base_type, p_identifier, member_type)) {
+	bool is_const = false;
+	if (_get_member_type(base_type, p_identifier, member_type, &is_const)) {
+		if (!p_base_type && current_function && current_function->_static && !is_const) {
+			_set_error("Can't access member variable (\"" + p_identifier.operator String() + "\") from a static function.", p_line);
+			return DataType();
+		}
 		return member_type;
 	}
 
@@ -7760,6 +7820,7 @@ void GDScriptParser::_check_class_level_types(ClassNode *p_class) {
 
 		_mark_line_as_safe(v.line);
 		v.data_type = _resolve_type(v.data_type, v.line);
+		v.initial_assignment->arguments[0]->set_datatype(v.data_type);
 
 		if (v.expression) {
 			DataType expr_type = _reduce_node_type(v.expression);
@@ -7801,6 +7862,10 @@ void GDScriptParser::_check_class_level_types(ClassNode *p_class) {
 			if (v.data_type.infer_type) {
 				if (!expr_type.has_type) {
 					_set_error("The assigned value doesn't have a set type; the variable type can't be inferred.", v.line);
+					return;
+				}
+				if (expr_type.kind == DataType::BUILTIN && expr_type.builtin_type == Variant::NIL) {
+					_set_error("The variable type cannot be inferred because its value is \"null\".", v.line);
 					return;
 				}
 				v.data_type = expr_type;
@@ -8022,17 +8087,6 @@ void GDScriptParser::_check_function_types(FunctionNode *p_function) {
 		p_function->return_type.has_type = false;
 		p_function->return_type.may_yield = true;
 	}
-
-#ifdef DEBUG_ENABLED
-	for (Map<StringName, LocalVarNode *>::Element *E = p_function->body->variables.front(); E; E = E->next()) {
-		LocalVarNode *lv = E->get();
-		for (int i = 0; i < current_class->variables.size(); i++) {
-			if (current_class->variables[i].identifier == lv->name) {
-				_add_warning(GDScriptWarning::SHADOWED_VARIABLE, lv->line, lv->name, itos(current_class->variables[i].line));
-			}
-		}
-	}
-#endif // DEBUG_ENABLED
 }
 
 void GDScriptParser::_check_class_blocks_types(ClassNode *p_class) {
@@ -8140,6 +8194,11 @@ void GDScriptParser::_check_block_types(BlockNode *p_block) {
 					if (lv->datatype.has_type && assign_type.may_yield && lv->assign->type == Node::TYPE_OPERATOR) {
 						_add_warning(GDScriptWarning::FUNCTION_MAY_YIELD, lv->line, _find_function_name(static_cast<OperatorNode *>(lv->assign)));
 					}
+					for (int i = 0; i < current_class->variables.size(); i++) {
+						if (current_class->variables[i].identifier == lv->name) {
+							_add_warning(GDScriptWarning::SHADOWED_VARIABLE, lv->line, lv->name, itos(current_class->variables[i].line));
+						}
+					}
 #endif // DEBUG_ENABLED
 
 					if (!_is_type_compatible(lv->datatype, assign_type)) {
@@ -8182,6 +8241,10 @@ void GDScriptParser::_check_block_types(BlockNode *p_block) {
 					if (lv->datatype.infer_type) {
 						if (!assign_type.has_type) {
 							_set_error("The assigned value doesn't have a set type; the variable type can't be inferred.", lv->line);
+							return;
+						}
+						if (assign_type.kind == DataType::BUILTIN && assign_type.builtin_type == Variant::NIL) {
+							_set_error("The variable type cannot be inferred because its value is \"null\".", lv->line);
 							return;
 						}
 						lv->datatype = assign_type;
@@ -8551,7 +8614,13 @@ Error GDScriptParser::_parse(const String &p_base_path) {
 		_set_error("Parse error: " + tokenizer->get_token_error());
 	}
 
-	if (error_set && !for_completion) {
+	bool for_completion_error_set = false;
+	if (error_set && for_completion) {
+		for_completion_error_set = true;
+		error_set = false;
+	}
+
+	if (error_set) {
 		return ERR_PARSE_ERROR;
 	}
 
@@ -8580,6 +8649,10 @@ Error GDScriptParser::_parse(const String &p_base_path) {
 
 	// Resolve the function blocks
 	_check_class_blocks_types(main_class);
+
+	if (for_completion_error_set) {
+		error_set = true;
+	}
 
 	if (error_set) {
 		return ERR_PARSE_ERROR;
