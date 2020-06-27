@@ -247,6 +247,11 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 			lh = line < l.height_caches.size() ? l.height_caches[line] : 1;                                                                                     \
 			line_ascent = line < l.ascent_caches.size() ? l.ascent_caches[line] : 1;                                                                            \
 			line_descent = line < l.descent_caches.size() ? l.descent_caches[line] : 1;                                                                         \
+			if (p_mode == PROCESS_DRAW) {                                                                                                                       \
+				if (line < l.offset_caches.size()) {                                                                                                            \
+					wofs = l.offset_caches[line];                                                                                                               \
+				}                                                                                                                                               \
+			}                                                                                                                                                   \
 		}                                                                                                                                                       \
 		if (p_mode == PROCESS_POINTER && r_click_item && p_click_pos.y >= p_ofs.y + y && p_click_pos.y <= p_ofs.y + y + lh && p_click_pos.x < p_ofs.x + wofs) { \
 			if (r_outside) *r_outside = true;                                                                                                                   \
@@ -870,7 +875,7 @@ int RichTextLabel::_process_line(ItemFrame *p_frame, const Vector2 &p_ofs, int &
 
 void RichTextLabel::_scroll_changed(double) {
 
-	if (updating_scroll || !scroll_active)
+	if (updating_scroll)
 		return;
 
 	if (scroll_follow && vscroll->get_value() >= (vscroll->get_max() - vscroll->get_page()))
@@ -1963,6 +1968,9 @@ void RichTextLabel::clear() {
 	selection.click = NULL;
 	selection.active = false;
 	current_idx = 1;
+	if (scroll_follow) {
+		scroll_following = true;
+	}
 }
 
 void RichTextLabel::set_tab_size(int p_spaces) {
@@ -2009,6 +2017,7 @@ void RichTextLabel::set_scroll_active(bool p_active) {
 		return;
 
 	scroll_active = p_active;
+	vscroll->set_drag_node_enabled(p_active);
 	update();
 }
 
@@ -2446,6 +2455,17 @@ Error RichTextLabel::append_bbcode(const String &p_bbcode) {
 					pos = brk_pos + 1;
 				}
 			}
+		}
+	}
+
+	Vector<ItemFX *> fx_items;
+	for (List<Item *>::Element *E = main->subitems.front(); E; E = E->next()) {
+		Item *subitem = static_cast<Item *>(E->get());
+		_fetch_item_fx_stack(subitem, fx_items);
+
+		if (fx_items.size()) {
+			set_process_internal(true);
+			break;
 		}
 	}
 
