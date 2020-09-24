@@ -1527,7 +1527,7 @@ GDScriptParser::Node *GDScriptParser::_parse_expression(Node *p_parent, bool p_s
 				}
 			}
 
-			//consecutively do unary opeators
+			//consecutively do unary operators
 			for (int i = expr_pos - 1; i >= next_op; i--) {
 
 				OperatorNode *op = alloc_node<OperatorNode>();
@@ -6055,7 +6055,7 @@ GDScriptParser::DataType GDScriptParser::_type_from_gdtype(const GDScriptDataTyp
 	result.has_type = true;
 	result.builtin_type = p_gdtype.builtin_type;
 	result.native_type = p_gdtype.native_type;
-	result.script_type = p_gdtype.script_type;
+	result.script_type = Ref<Script>(p_gdtype.script_type);
 
 	switch (p_gdtype.kind) {
 		case GDScriptDataType::UNINITIALIZED: {
