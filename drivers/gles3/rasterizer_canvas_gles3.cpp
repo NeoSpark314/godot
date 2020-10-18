@@ -170,6 +170,7 @@ void RasterizerCanvasGLES3::canvas_begin() {
 	state.canvas_shader.set_conditional(CanvasShaderGLES3::SHADOW_FILTER_PCF13, false);
 	state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_DISTANCE_FIELD, false);
 	state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_NINEPATCH, false);
+	state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_LIGHT_ANGLE, false);
 	state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_SKELETON, false);
 
 	state.canvas_shader.set_custom_shader(0);
@@ -191,6 +192,7 @@ void RasterizerCanvasGLES3::canvas_begin() {
 	glBindVertexArray(data.canvas_quad_array);
 	state.using_texture_rect = true;
 	state.using_ninepatch = false;
+	state.using_light_angle = false;
 	state.using_skeleton = false;
 }
 
@@ -204,6 +206,7 @@ void RasterizerCanvasGLES3::canvas_end() {
 
 	state.using_texture_rect = false;
 	state.using_ninepatch = false;
+	state.using_light_angle = false;
 }
 
 RasterizerStorageGLES3::Texture *RasterizerCanvasGLES3::_bind_canvas_texture(const RID &p_texture, const RID &p_normal_map, bool p_force) {
@@ -288,9 +291,9 @@ RasterizerStorageGLES3::Texture *RasterizerCanvasGLES3::_bind_canvas_texture(con
 	return tex_return;
 }
 
-void RasterizerCanvasGLES3::_set_texture_rect_mode(bool p_enable, bool p_ninepatch) {
+void RasterizerCanvasGLES3::_set_texture_rect_mode(bool p_enable, bool p_ninepatch, bool p_light_angle) {
 
-	if (state.using_texture_rect == p_enable && state.using_ninepatch == p_ninepatch)
+	if (state.using_texture_rect == p_enable && state.using_ninepatch == p_ninepatch && state.using_light_angle == p_light_angle)
 		return;
 
 	if (p_enable) {
@@ -304,6 +307,7 @@ void RasterizerCanvasGLES3::_set_texture_rect_mode(bool p_enable, bool p_ninepat
 
 	state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_NINEPATCH, p_ninepatch && p_enable);
 	state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_TEXTURE_RECT, p_enable);
+	state.canvas_shader.set_conditional(CanvasShaderGLES3::USE_LIGHT_ANGLE, p_light_angle);
 	state.canvas_shader.bind();
 	state.canvas_shader.set_uniform(CanvasShaderGLES3::FINAL_MODULATE, state.canvas_item_modulate);
 	state.canvas_shader.set_uniform(CanvasShaderGLES3::MODELVIEW_MATRIX, state.final_transform);
@@ -319,6 +323,7 @@ void RasterizerCanvasGLES3::_set_texture_rect_mode(bool p_enable, bool p_ninepat
 	}
 	state.using_texture_rect = p_enable;
 	state.using_ninepatch = p_ninepatch;
+	state.using_light_angle = p_light_angle;
 }
 
 void RasterizerCanvasGLES3::_draw_polygon(const int *p_indices, int p_index_count, int p_vertex_count, const Vector2 *p_vertices, const Vector2 *p_uvs, const Color *p_colors, bool p_singlecolor, const int *p_bones, const float *p_weights) {
@@ -326,15 +331,9 @@ void RasterizerCanvasGLES3::_draw_polygon(const int *p_indices, int p_index_coun
 	glBindVertexArray(data.polygon_buffer_pointer_array);
 	glBindBuffer(GL_ARRAY_BUFFER, data.polygon_buffer);
 
-#ifndef GLES_OVER_GL
-	// Orphan the buffer to avoid CPU/GPU sync points caused by glBufferSubData
-	glBufferData(GL_ARRAY_BUFFER, data.polygon_buffer_size, NULL, GL_DYNAMIC_DRAW);
-#endif
-
 	uint32_t buffer_ofs = 0;
+	storage->buffer_orphan_and_upload(data.polygon_buffer_size, buffer_ofs, sizeof(Vector2) * p_vertex_count, p_vertices);
 
-	//vertex
-	glBufferSubData(GL_ARRAY_BUFFER, buffer_ofs, sizeof(Vector2) * p_vertex_count, p_vertices);
 	glEnableVertexAttribArray(VS::ARRAY_VERTEX);
 	glVertexAttribPointer(VS::ARRAY_VERTEX, 2, GL_FLOAT, false, sizeof(Vector2), CAST_INT_TO_UCHAR_PTR(buffer_ofs));
 	buffer_ofs += sizeof(Vector2) * p_vertex_count;
@@ -401,11 +400,7 @@ void RasterizerCanvasGLES3::_draw_polygon(const int *p_indices, int p_index_coun
 
 	//bind the indices buffer.
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, data.polygon_index_buffer);
-#ifndef GLES_OVER_GL
-	// Orphan the buffer to avoid CPU/GPU sync points caused by glBufferSubData
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.polygon_index_buffer_size, NULL, GL_DYNAMIC_DRAW);
-#endif
-	glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(int) * p_index_count, p_indices);
+	storage->buffer_orphan_and_upload(data.polygon_index_buffer_size, 0, sizeof(int) * p_index_count, p_indices, GL_ELEMENT_ARRAY_BUFFER);
 
 	//draw the triangles.
 	glDrawElements(GL_TRIANGLES, p_index_count, GL_UNSIGNED_INT, 0);
@@ -427,15 +422,9 @@ void RasterizerCanvasGLES3::_draw_generic(GLuint p_primitive, int p_vertex_count
 	glBindVertexArray(data.polygon_buffer_pointer_array);
 	glBindBuffer(GL_ARRAY_BUFFER, data.polygon_buffer);
 
-#ifndef GLES_OVER_GL
-	// Orphan the buffer to avoid CPU/GPU sync points caused by glBufferSubData
-	glBufferData(GL_ARRAY_BUFFER, data.polygon_buffer_size, NULL, GL_DYNAMIC_DRAW);
-#endif
-
 	uint32_t buffer_ofs = 0;
+	storage->buffer_orphan_and_upload(data.polygon_buffer_size, buffer_ofs, sizeof(Vector2) * p_vertex_count, p_vertices);
 
-	//vertex
-	glBufferSubData(GL_ARRAY_BUFFER, buffer_ofs, sizeof(Vector2) * p_vertex_count, p_vertices);
 	glEnableVertexAttribArray(VS::ARRAY_VERTEX);
 	glVertexAttribPointer(VS::ARRAY_VERTEX, 2, GL_FLOAT, false, sizeof(Vector2), CAST_INT_TO_UCHAR_PTR(buffer_ofs));
 	buffer_ofs += sizeof(Vector2) * p_vertex_count;
@@ -480,15 +469,9 @@ void RasterizerCanvasGLES3::_draw_generic_indices(GLuint p_primitive, const int 
 	glBindVertexArray(data.polygon_buffer_pointer_array);
 	glBindBuffer(GL_ARRAY_BUFFER, data.polygon_buffer);
 
-#ifndef GLES_OVER_GL
-	// Orphan the buffer to avoid CPU/GPU sync points caused by glBufferSubData
-	glBufferData(GL_ARRAY_BUFFER, data.polygon_buffer_size, NULL, GL_DYNAMIC_DRAW);
-#endif
-
 	uint32_t buffer_ofs = 0;
+	storage->buffer_orphan_and_upload(data.polygon_buffer_size, buffer_ofs, sizeof(Vector2) * p_vertex_count, p_vertices);
 
-	//vertex
-	glBufferSubData(GL_ARRAY_BUFFER, buffer_ofs, sizeof(Vector2) * p_vertex_count, p_vertices);
 	glEnableVertexAttribArray(VS::ARRAY_VERTEX);
 	glVertexAttribPointer(VS::ARRAY_VERTEX, 2, GL_FLOAT, false, sizeof(Vector2), CAST_INT_TO_UCHAR_PTR(buffer_ofs));
 	buffer_ofs += sizeof(Vector2) * p_vertex_count;
@@ -533,11 +516,8 @@ void RasterizerCanvasGLES3::_draw_generic_indices(GLuint p_primitive, const int 
 
 	//bind the indices buffer.
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, data.polygon_index_buffer);
-#ifndef GLES_OVER_GL
-	// Orphan the buffer to avoid CPU/GPU sync points caused by glBufferSubData
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, data.polygon_index_buffer_size, NULL, GL_DYNAMIC_DRAW);
-#endif
-	glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(int) * p_index_count, p_indices);
+
+	storage->buffer_orphan_and_upload(data.polygon_index_buffer_size, 0, sizeof(int) * p_index_count, p_indices, GL_ELEMENT_ARRAY_BUFFER);
 
 	//draw the triangles.
 	glDrawElements(p_primitive, p_index_count, GL_UNSIGNED_INT, 0);
@@ -548,7 +528,7 @@ void RasterizerCanvasGLES3::_draw_generic_indices(GLuint p_primitive, const int 
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
-void RasterizerCanvasGLES3::_draw_gui_primitive(int p_points, const Vector2 *p_vertices, const Color *p_colors, const Vector2 *p_uvs) {
+void RasterizerCanvasGLES3::_draw_gui_primitive(int p_points, const Vector2 *p_vertices, const Color *p_colors, const Vector2 *p_uvs, const float *p_light_angles) {
 
 	static const GLenum prim[5] = { GL_POINTS, GL_POINTS, GL_LINES, GL_TRIANGLES, GL_TRIANGLE_FAN };
 
@@ -557,6 +537,7 @@ void RasterizerCanvasGLES3::_draw_gui_primitive(int p_points, const Vector2 *p_v
 	int version = 0;
 	int color_ofs = 0;
 	int uv_ofs = 0;
+	int light_angle_ofs = 0;
 	int stride = 2;
 
 	if (p_colors) { //color
@@ -571,7 +552,13 @@ void RasterizerCanvasGLES3::_draw_gui_primitive(int p_points, const Vector2 *p_v
 		stride += 2;
 	}
 
-	float b[(2 + 2 + 4) * 4];
+	if (p_light_angles) { //light_angles
+		version |= 4;
+		light_angle_ofs = stride;
+		stride += 1;
+	}
+
+	float b[(2 + 2 + 4 + 1) * 4];
 
 	for (int i = 0; i < p_points; i++) {
 		b[stride * i + 0] = p_vertices[i].x;
@@ -596,13 +583,17 @@ void RasterizerCanvasGLES3::_draw_gui_primitive(int p_points, const Vector2 *p_v
 		}
 	}
 
+	if (p_light_angles) {
+
+		for (int i = 0; i < p_points; i++) {
+			b[stride * i + light_angle_ofs] = p_light_angles[i];
+		}
+	}
+
 	glBindBuffer(GL_ARRAY_BUFFER, data.polygon_buffer);
-#ifndef GLES_OVER_GL
-	// Orphan the buffer to avoid CPU/GPU sync points caused by glBufferSubData
-	glBufferData(GL_ARRAY_BUFFER, data.polygon_buffer_size, NULL, GL_DYNAMIC_DRAW);
-#endif
-	//TODO the below call may need to be replaced with: glBufferSubData(GL_ARRAY_BUFFER, 0, p_points * stride * 4 * sizeof(float), &b[0]);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, p_points * stride * 4, &b[0]);
+	//TODO the below call may need to be replaced with: (p_points * stride * 4 * sizeof(float), &b[0]);
+	storage->buffer_orphan_and_upload(data.polygon_buffer_size, 0, p_points * stride * 4, &b[0]);
+
 	glBindVertexArray(data.polygon_buffer_quad_arrays[version]);
 	glDrawArrays(prim[p_points], 0, p_points);
 	glBindVertexArray(0);
@@ -623,9 +614,18 @@ static const GLenum gl_primitive[] = {
 
 void RasterizerCanvasGLES3::render_rect_nvidia_workaround(const Item::CommandRect *p_rect, const RasterizerStorageGLES3::Texture *p_texture) {
 
-	_set_texture_rect_mode(false);
-
 	if (p_texture) {
+
+		bool send_light_angles = false;
+
+		// only need to use light angles when normal mapping
+		// otherwise we can use the default shader
+		if (state.current_normal != RID()) {
+			send_light_angles = true;
+		}
+
+		// we don't want to use texture rect, and we want to send light angles if we are using normal mapping
+		_set_texture_rect_mode(false, false, send_light_angles);
 
 		bool untile = false;
 
@@ -663,6 +663,10 @@ void RasterizerCanvasGLES3::render_rect_nvidia_workaround(const Item::CommandRec
 			src_rect.position + Vector2(0.0, src_rect.size.y),
 		};
 
+		// for encoding in light angle
+		bool flip_h = false;
+		bool flip_v = false;
+
 		if (p_rect->flags & CANVAS_RECT_TRANSPOSE) {
 			SWAP(uvs[1], uvs[3]);
 		}
@@ -670,13 +674,42 @@ void RasterizerCanvasGLES3::render_rect_nvidia_workaround(const Item::CommandRec
 		if (p_rect->flags & CANVAS_RECT_FLIP_H) {
 			SWAP(uvs[0], uvs[1]);
 			SWAP(uvs[2], uvs[3]);
+			flip_h = true;
+			flip_v = !flip_v;
 		}
 		if (p_rect->flags & CANVAS_RECT_FLIP_V) {
 			SWAP(uvs[0], uvs[3]);
 			SWAP(uvs[1], uvs[2]);
+			flip_v = !flip_v;
 		}
 
-		_draw_gui_primitive(4, points, NULL, uvs);
+		if (send_light_angles) {
+			// for single rects, there is no need to fully utilize the light angle,
+			// we only need it to encode flips (horz and vert). But the shader can be reused with
+			// batching in which case the angle encodes the transform as well as
+			// the flips.
+			// Note transpose is NYI. I don't think it worked either with the non-nvidia method.
+
+			// if horizontal flip, angle is 180
+			float angle = 0.0f;
+			if (flip_h)
+				angle = Math_PI;
+
+			// add 1 (to take care of zero floating point error with sign)
+			angle += 1.0f;
+
+			// flip if necessary
+			if (flip_v)
+				angle *= -1.0f;
+
+			// light angle must be sent for each vert, instead as a single uniform in the uniform draw method
+			// this has the benefit of enabling batching with light angles.
+			float light_angles[4] = { angle, angle, angle, angle };
+
+			_draw_gui_primitive(4, points, NULL, uvs, light_angles);
+		} else {
+			_draw_gui_primitive(4, points, NULL, uvs);
+		}
 
 		if (untile) {
 			glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -684,6 +717,8 @@ void RasterizerCanvasGLES3::render_rect_nvidia_workaround(const Item::CommandRec
 		}
 
 	} else {
+		_set_texture_rect_mode(false);
+
 		state.canvas_shader.set_uniform(CanvasShaderGLES3::CLIP_RECT_UV, false);
 
 		Vector2 points[4] = {
@@ -2262,7 +2297,7 @@ void RasterizerCanvasGLES3::initialize() {
 		uint32_t poly_size = GLOBAL_DEF_RST("rendering/limits/buffers/canvas_polygon_buffer_size_kb", 128);
 		ProjectSettings::get_singleton()->set_custom_property_info("rendering/limits/buffers/canvas_polygon_buffer_size_kb", PropertyInfo(Variant::INT, "rendering/limits/buffers/canvas_polygon_buffer_size_kb", PROPERTY_HINT_RANGE, "0,256,1,or_greater"));
 		poly_size *= 1024; //kb
-		poly_size = MAX(poly_size, (2 + 2 + 4) * 4 * sizeof(float));
+		poly_size = MAX(poly_size, (2 + 2 + 4 + 1) * 4 * sizeof(float));
 		glGenBuffers(1, &data.polygon_buffer);
 		glBindBuffer(GL_ARRAY_BUFFER, data.polygon_buffer);
 		glBufferData(GL_ARRAY_BUFFER, poly_size, NULL, GL_DYNAMIC_DRAW); //allocate max size
@@ -2270,13 +2305,14 @@ void RasterizerCanvasGLES3::initialize() {
 		data.polygon_buffer_size = poly_size;
 
 		//quad arrays
-		for (int i = 0; i < 4; i++) {
+		for (int i = 0; i < Data::NUM_QUAD_ARRAY_VARIATIONS; i++) {
 			glGenVertexArrays(1, &data.polygon_buffer_quad_arrays[i]);
 			glBindVertexArray(data.polygon_buffer_quad_arrays[i]);
 			glBindBuffer(GL_ARRAY_BUFFER, data.polygon_buffer);
 
 			int uv_ofs = 0;
 			int color_ofs = 0;
+			int light_angle_ofs = 0;
 			int stride = 2 * 4;
 
 			if (i & 1) { //color
@@ -2287,6 +2323,11 @@ void RasterizerCanvasGLES3::initialize() {
 			if (i & 2) { //uv
 				uv_ofs = stride;
 				stride += 2 * 4;
+			}
+
+			if (i & 4) { //light_angle
+				light_angle_ofs = stride;
+				stride += 1 * 4;
 			}
 
 			glEnableVertexAttribArray(VS::ARRAY_VERTEX);
@@ -2300,6 +2341,12 @@ void RasterizerCanvasGLES3::initialize() {
 			if (i & 2) {
 				glEnableVertexAttribArray(VS::ARRAY_TEX_UV);
 				glVertexAttribPointer(VS::ARRAY_TEX_UV, 2, GL_FLOAT, GL_FALSE, stride, CAST_INT_TO_UCHAR_PTR(uv_ofs));
+			}
+
+			if (i & 4) {
+				// reusing tangent for light_angle
+				glEnableVertexAttribArray(VS::ARRAY_TANGENT);
+				glVertexAttribPointer(VS::ARRAY_TANGENT, 1, GL_FLOAT, GL_FALSE, stride, CAST_INT_TO_UCHAR_PTR(light_angle_ofs));
 			}
 
 			glBindVertexArray(0);
